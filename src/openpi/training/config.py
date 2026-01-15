@@ -19,6 +19,7 @@ import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
+import openpi.policies.dual_piper_policy as dual_piper_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
@@ -347,6 +348,68 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
         model_transforms = ModelTransformFactory()(model_config)
 
         # We return all data transforms for training and inference. No need to change anything here.
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotDualPiperDataConfig(DataConfigFactory):
+    """
+    Data config for DualPiper dual-arm robot.
+
+    Similar to ALOHA but with 3 cameras (no cam_low).
+    - 14 dimensional state/action (left arm 7 dims + right arm 7 dims)
+    - 3 cameras: cam_high, cam_left_wrist, cam_right_wrist
+    - Absolute actions that need to be converted to delta actions
+    """
+
+    extra_delta_transform: bool = True  # Convert absolute actions to delta actions
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Repack transform: remap keys from dataset to inference format
+        # This is only applied during training, not during inference
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/images.cam_high": "images.cam_high",
+                        "observation/images.cam_left_wrist": "images.cam_left_wrist",
+                        "observation/images.cam_right_wrist": "images.cam_right_wrist",
+                        "observation/state": "state",
+                        "action": "actions",
+                        "task": "prompt",
+                    }
+                )
+            ]
+        )
+
+        # Data transforms: applied during both training and inference
+        data_transforms = _transforms.Group(
+            inputs=[dual_piper_policy.DualPiperInputs()],
+            outputs=[dual_piper_policy.DualPiperOutputs()],
+        )
+
+        # Convert absolute actions to delta actions
+        # Dual arm robot: left arm 6 joints + 1 gripper, right arm 6 joints + 1 gripper = 14 dims
+        # make_bool_mask(6, -1, 6, -1) means:
+        #   - First 6 dims (left arm joints): delta
+        #   - 7th dim (left arm gripper): absolute
+        #   - Next 6 dims (right arm joints): delta
+        #   - 14th dim (right arm gripper): absolute
+        if self.extra_delta_transform:
+            delta_action_mask = _transforms.make_bool_mask(6, -1, 6, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory()(model_config)
+
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
             repack_transforms=repack_transform,
@@ -824,6 +887,35 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=20_000,
         batch_size=64,
+    ),
+    #
+    # Fine-tuning DualPiper configs.
+    #
+    TrainConfig(
+        name="pi05_dual_piper",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+        ),
+        data=LeRobotDualPiperDataConfig(
+            repo_id="your_username/dual_piper",  # TODO: Change to your HuggingFace repo_id
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,  # Convert absolute actions to delta
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi05_base/params"
+        ),
+        batch_size=256,
+        num_train_steps=30_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
     ),
     #
     # Fine-tuning DROID configs.
