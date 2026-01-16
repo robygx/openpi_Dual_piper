@@ -368,6 +368,8 @@ class LeRobotDualPiperDataConfig(DataConfigFactory):
     """
 
     extra_delta_transform: bool = True  # Convert absolute actions to delta actions
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -377,12 +379,14 @@ class LeRobotDualPiperDataConfig(DataConfigFactory):
             inputs=[
                 _transforms.RepackTransform(
                     {
-                        "observation/images.cam_high": "images.cam_high",
-                        "observation/images.cam_left_wrist": "images.cam_left_wrist",
-                        "observation/images.cam_right_wrist": "images.cam_right_wrist",
-                        "observation/state": "state",
-                        "action": "actions",
-                        "task": "prompt",
+                        "images": {
+                            "cam_high": "observation.images.cam_high",
+                            "cam_left_wrist": "observation.images.cam_left_wrist",
+                            "cam_right_wrist": "observation.images.cam_right_wrist",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                        "prompt": "task",
                     }
                 )
             ]
@@ -415,6 +419,7 @@ class LeRobotDualPiperDataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
         )
 
 
@@ -899,7 +904,7 @@ _CONFIGS = [
             discrete_state_input=False,
         ),
         data=LeRobotDualPiperDataConfig(
-            repo_id="your_username/dual_piper",  # TODO: Change to your HuggingFace repo_id
+            repo_id="ygx/xvla_cloth_folding",  # X-VLA Cloth Folding dataset
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=True,  # Convert absolute actions to delta
         ),
