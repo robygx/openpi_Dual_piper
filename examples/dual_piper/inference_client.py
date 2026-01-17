@@ -5,7 +5,11 @@ DualPiper 远程推理客户端示例
 发送观察值并接收动作预测。
 
 运行方式：
-    python inference_client.py --host <服务器IP> --port 8000
+    # 使用随机数据测试连接
+    uv run python examples/dual_piper/inference_client.py --host <服务器IP>
+
+    # 或者从机器人获取真实数据
+    python your_robot_script.py --server-ip <服务器IP>
 """
 
 import dataclasses
@@ -14,6 +18,7 @@ import pathlib
 import time
 
 import numpy as np
+import tyro
 from openpi_client import image_tools
 from openpi_client import websocket_client_policy
 
@@ -26,15 +31,15 @@ class DualPiperObservation:
     """DualPiper 机器人观察值
 
     相机:
-        - cam_high: 顶视角相机 (3, H, W) CHW 格式
-        - cam_left_wrist: 左腕相机 (3, H, W)
-        - cam_right_wrist: 右腕相机 (3, H, W)
+        - cam_high: 顶视角相机 (H, W, 3) HWC 格式 (numpy array 或 uint8)
+        - cam_left_wrist: 左腕相机 (H, W, 3)
+        - cam_right_wrist: 右腕相机 (H, W, 3)
 
     状态:
         - state: 14维关节状态 (左臂7维 + 右臂7维)
     """
 
-    cam_high: np.ndarray  # 顶视角图像，任意分辨率
+    cam_high: np.ndarray  # 顶视角图像，HWC 格式
     cam_left_wrist: np.ndarray  # 左腕图像
     cam_right_wrist: np.ndarray  # 右腕图像
     state: np.ndarray  # (14,) 关节位置
@@ -48,16 +53,21 @@ class DualPiperObservation:
         Returns:
             dict: 策略服务器期望的观察值格式
         """
+        # 确保 HWC 格式
+        cam_high = self.cam_high if self.cam_high.ndim == 3 else self.cam_high.transpose(1, 2, 0)
+        cam_left = self.cam_left_wrist if self.cam_left_wrist.ndim == 3 else self.cam_left_wrist.transpose(1, 2, 0)
+        cam_right = self.cam_right_wrist if self.cam_right_wrist.ndim == 3 else self.cam_right_wrist.transpose(1, 2, 0)
+
         return {
             "images": {
                 "cam_high": image_tools.convert_to_uint8(
-                    image_tools.resize_with_pad(self.cam_high, resize_size, resize_size)
+                    image_tools.resize_with_pad(cam_high, resize_size, resize_size)
                 ),
                 "cam_left_wrist": image_tools.convert_to_uint8(
-                    image_tools.resize_with_pad(self.cam_left_wrist, resize_size, resize_size)
+                    image_tools.resize_with_pad(cam_left, resize_size, resize_size)
                 ),
                 "cam_right_wrist": image_tools.convert_to_uint8(
-                    image_tools.resize_with_pad(self.cam_right_wrist, resize_size, resize_size)
+                    image_tools.resize_with_pad(cam_right, resize_size, resize_size)
                 ),
             },
             "state": self.state.astype(np.float32),  # 服务器会处理归一化
@@ -154,19 +164,25 @@ class DualPiperPolicyClient:
         }
 
 
-def example_with_random_data():
-    """使用随机数据测试客户端连接"""
+def example_with_random_data(host: str = "localhost", port: int = 8000, task: str = "fold the cloth"):
+    """使用随机数据测试客户端连接
 
-    # 创建客户端（替换为你的服务器 IP）
-    client = DualPiperPolicyClient(host="localhost", port=8000)
+    Args:
+        host: 策略服务器 IP 地址
+        port: 策略服务器端口
+        task: 任务描述
+    """
+
+    # 创建客户端
+    client = DualPiperPolicyClient(host=host, port=port)
 
     # 初始化
+    logger.info(f"Connecting to {host}:{port}...")
     metadata = client.initialize()
-    print(f"Server metadata: {metadata}")
+    logger.info(f"Server metadata: {metadata}")
 
     # 模拟控制循环
     num_steps = 10
-    task = "fold the cloth"
 
     for step in range(num_steps):
         # 在实际使用中，这里从机器人获取真实观察值
@@ -180,11 +196,19 @@ def example_with_random_data():
         # 获取动作
         action = client.get_action(observation, task)
 
-        print(f"Step {step}: action shape = {action.shape}, action = {action}")
+        logger.info(f"Step {step}: action shape = {action.shape}, mean = {action.mean():.4f}")
 
         # 在实际使用中，这里将 action 发送给机器人执行
         # execute_action_on_robot(action)
 
 
+@dataclasses.dataclass
+class Args:
+    """命令行参数"""
+    host: str = "localhost"
+    port: int = 8000
+    task: str = "fold the cloth"
+
+
 if __name__ == "__main__":
-    example_with_random_data()
+    tyro.cli(example_with_random_data)
