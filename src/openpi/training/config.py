@@ -904,7 +904,7 @@ _CONFIGS = [
             discrete_state_input=False,
         ),
         data=LeRobotDualPiperDataConfig(
-            repo_id="ygx/stack_bowls_three",  # Stack Bowls dataset
+            repo_id="ygx/stack_blocks_three",  # Stack Blocks dataset (merged from 4 subdirectories)
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=True,  # Convert absolute actions to delta
         ),

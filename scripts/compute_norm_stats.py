@@ -102,28 +102,9 @@ def main(config_name: str, max_frames: int | None = None):
     keys = ["state", "actions"]
     stats = {key: normalize.RunningStats() for key in keys}
 
-    batch_count = 0
     for batch in tqdm.tqdm(data_loader, total=num_batches, desc="Computing stats"):
-        try:
-            for key in keys:
-                stats[key].update(np.asarray(batch[key]))
-            batch_count += 1
-        except Exception as e:
-            print(f"\n{'='*60}")
-            print(f"ERROR in batch {batch_count}")
-            print(f"Exception: {e}")
-            print(f"Batch type: {type(batch)}")
-            if isinstance(batch, dict):
-                print(f"Batch keys: {list(batch.keys())}")
-                for key, val in batch.items():
-                    if isinstance(val, np.ndarray):
-                        print(f"  {key}: shape={val.shape}, dtype={val.dtype}")
-                    else:
-                        print(f"  {key}: {type(val)} = {val}")
-            else:
-                print(f"Batch is not a dict, it's {type(batch)}")
-            print(f"{'='*60}\n")
-            raise
+        for key in keys:
+            stats[key].update(np.asarray(batch[key]))
 
     norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
 

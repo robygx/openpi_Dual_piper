@@ -60,8 +60,8 @@ def main(
             "observation.images.cam_right_wrist": {"dtype": "video", "shape": (3, 480, 640), "names": ["channels", "height", "width"]},
         },
         use_videos=True,
-        image_writer_threads=5,
-        image_writer_processes=10,
+        image_writer_threads=16,
+        image_writer_processes=64,
     )
 
     # Collect all HDF5 files from all subdirectories, sorted by subdirectory then filename
