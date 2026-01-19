@@ -4,3 +4,6 @@
 [submodule "third_party/libero"]
 	path = third_party/libero
 	url = https://github.com/Lifelong-Robot-Learning/LIBERO.git
+[submodule "third_party/piper_sdk"]
+	path = third_party/piper_sdk
+	url = https://github.com/agilexrobotics/piper_sdk.git

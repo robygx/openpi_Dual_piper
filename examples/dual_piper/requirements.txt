@@ -1,0 +1,23 @@
+# DualPiper robot client requirements
+
+# Core openpi client (install from local source)
+# Run: pip install -e ../../packages/openpi-client
+
+# Piper SDK for robot control
+piper_sdk>=0.1.9
+
+# CAN communication
+python-can>=4.3.1
+
+# Image processing (for camera capture)
+numpy>=1.23.0
+opencv-python>=4.8.0
+
+# RealSense camera support
+pyrealsense2>=2.54.0
+
+# Image tools
+einops>=0.6.0
+
+# Utilities
+tyro>=0.8.0
