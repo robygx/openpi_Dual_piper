@@ -151,8 +151,38 @@ class DualPiperRealEnvironment(_environment.Environment):
         # Get joint positions from Piper arms
         state = self._env.get_joint_positions()  # (14,)
 
+        # DEBUG: Print observation details on first call
+        if not hasattr(self, '_obs_debug_done'):
+            expected_start = _constants.CONSTANTS.RESET_POSITION
+            logger.info(f"\n{'='*60}")
+            logger.info(f"=== OBSERVATION DEBUG ===")
+            logger.info(f"{'='*60}")
+            logger.info(f"State shape: {state.shape}, dtype: {state.dtype}")
+            logger.info(f"State: {state}")
+            logger.info(f"")
+            logger.info(f"Expected (dataset start): {expected_start[:7]}...")
+            logger.info(f"")
+            logger.info(f"Comparison:")
+            logger.info(f"  Left arm joints (0-5):")
+            for i in range(6):
+                match = "✓" if abs(state[i] - expected_start[i]) < 0.01 else "✗"
+                logger.info(f"    Joint {i}: {state[i]:.4f} (expected {expected_start[i]:.4f}) {match}")
+            logger.info(f"  Left gripper (6): {state[6]:.4f} (expected {expected_start[6]:.4f})")
+            logger.info(f"")
+            logger.info(f"State matches dataset: {np.allclose(state[:7], expected_start[:7], atol=0.01)}")
+            logger.info(f"{'='*60}\n")
+            self._obs_debug_done = True
+
         # Get images from RealSense cameras
         images = self._cameras.get_images()
+
+        # DEBUG: Print image shapes on first call
+        if not hasattr(self, '_img_debug_done'):
+            logger.info(f"=== IMAGE DEBUG ===")
+            for cam_name, img in images.items():
+                logger.info(f"{cam_name}: original shape={img.shape}, dtype={img.dtype}")
+            logger.info(f"")
+            self._img_debug_done = True
 
         # Preprocess images: resize to 224x224, convert to uint8, and CHW format
         for cam_name in images:
@@ -162,6 +192,14 @@ class DualPiperRealEnvironment(_environment.Environment):
             )
             # Convert HWC to CHW format (as expected by the policy)
             images[cam_name] = einops.rearrange(img, "h w c -> c h w")
+
+        # DEBUG: Verify final image format
+        if not hasattr(self, '_img_final_debug_done'):
+            logger.info(f"=== IMAGE FINAL FORMAT ===")
+            for cam_name, img in images.items():
+                logger.info(f"{cam_name}: final shape={img.shape}, dtype={img.dtype}")
+            logger.info(f"{'='*60}\n")
+            self._img_final_debug_done = True
 
         return {
             "state": state,
@@ -197,17 +235,52 @@ class DualPiperRealEnvironment(_environment.Environment):
         """
         actions = action["actions"].copy()  # (14,)
 
-        # DEBUG: Print first few actions to verify format
+        # DEBUG: Print first 5 steps with detailed info
         if not hasattr(self, '_debug_count'):
             self._debug_count = 0
 
-        if self._debug_count < 3:
+        if self._debug_count < 5:
             # Get current position
             current = self._env.get_joint_positions()
-            logger.info(f"\n=== Step {self._debug_count + 1} ===")
-            logger.info(f"Current position: {current}")
-            logger.info(f"Target action:   {actions}")
-            logger.info(f"Position change: {actions - current}")
+
+            logger.info(f"\n{'='*60}")
+            logger.info(f"=== ACTION DEBUG (Step {self._debug_count + 1}) ===")
+            logger.info(f"{'='*60}")
+            logger.info(f"Current state:  {current}")
+            logger.info(f"")
+            logger.info(f"Received action: {actions}")
+            logger.info(f"Action dtype: {actions.dtype}, shape: {actions.shape}")
+            logger.info(f"")
+
+            # Check joint changes (should be small deltas)
+            left_arm_delta = actions[:6] - current[:6]
+            right_arm_delta = actions[7:13] - current[7:13]
+            logger.info(f"Joint delta (degrees):")
+            logger.info(f"  Left arm:  {np.degrees(left_arm_delta)}")
+            logger.info(f"  Right arm: {np.degrees(right_arm_delta)}")
+            logger.info(f"")
+
+            # Check gripper values before transformation
+            logger.info(f"Gripper BEFORE transform:")
+            logger.info(f"  Left gripper:  {actions[6]:.6f} (normalized 0-1)")
+            logger.info(f"  Right gripper: {actions[13]:.6f} (normalized 0-1)")
+            logger.info(f"")
+
+            # Transform gripper values
+            actions[6] = actions[6] * 0.05  # Left gripper
+            actions[13] = actions[13] * 0.05  # Right gripper
+
+            logger.info(f"Gripper AFTER transform:")
+            logger.info(f"  Left gripper:  {actions[6]:.6f} meters")
+            logger.info(f"  Right gripper: {actions[13]:.6f} meters")
+            logger.info(f"")
+
+            # Check if values are reasonable
+            logger.info(f"Sanity checks:")
+            logger.info(f"  Joint delta reasonable (< 10 deg): {np.all(np.abs(np.degrees(left_arm_delta)) < 10)}")
+            logger.info(f"  Gripper in range [0, 0.05]: {0 <= actions[6] <= 0.05 and 0 <= actions[13] <= 0.05}")
+            logger.info(f"{'='*60}\n")
+
             self._debug_count += 1
 
         # Convert gripper positions from normalized [0, 1] to meters [0, 0.05]
