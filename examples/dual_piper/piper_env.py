@@ -94,11 +94,14 @@ class PiperSingleArm:
         """Get gripper position.
 
         Returns:
-            Gripper position in meters (normalized 0-1 range typically)
+            Gripper position in normalized [0, 1] range (0=open, 1=closed)
         """
         arm_gripper = self.piper.GetArmGripperMsgs()  # Returns ArmGripper object
         gripper_state = arm_gripper.gripper_state
-        return gripper_state.grippers_angle * GRIPPER_UNIT  # Convert from µm to meters
+        # Convert from µm to meters, then normalize to [0, 1]
+        # 0.05 meters = fully closed (1.0), 0.0 meters = fully open (0.0)
+        gripper_meters = gripper_state.grippers_angle * GRIPPER_UNIT
+        return gripper_meters / 0.05  # Normalize to [0, 1]
 
     def set_joint_angles(self, angles: np.ndarray):
         """Set joint angles.
@@ -111,6 +114,15 @@ class PiperSingleArm:
 
         # Convert from radians to 0.001 degrees
         angles_deg = angles * 180 / np.pi / JOINT_UNIT
+
+        # DEBUG: Log what we're sending (only on first call)
+        if not hasattr(self, '_set_joint_debug_done'):
+            logger.info(f"[{self.can_name}] set_joint_angles DEBUG:")
+            logger.info(f"  Input (rad):  {angles}")
+            logger.info(f"  Input (deg):  {angles * 180 / np.pi}")
+            logger.info(f"  Sending (0.001deg units): {[int(x) for x in angles_deg]}")
+            self._set_joint_debug_done = True
+
         self.piper.JointCtrl(*[int(x) for x in angles_deg])
 
     def set_gripper(self, position: float, torque: int = 1000):
