@@ -126,6 +126,23 @@ class PiperSingleArm:
 
         self.piper.JointCtrl(*[int(x) for x in angles_deg])
 
+        # DIAGNOSTIC: Immediately read back to verify command was received
+        # This helps identify if the issue is in command sending or hardware response
+        if not hasattr(self, '_verify_count'):
+            self._verify_count = 0
+
+        if self._verify_count < 3:
+            time.sleep(0.05)  # Small delay to let command execute
+            actual_joints = self.get_joint_angles()
+            actual_deg = actual_joints * 180 / np.pi
+
+            logger.warning(f"[{self.can_name}] CMD vs ACTUAL (deg) - Verify #{self._verify_count + 1}:")
+            for i, (cmd_deg, act_deg) in enumerate(zip(angles * 180 / np.pi, actual_deg)):
+                diff = abs(cmd_deg - act_deg)
+                status = "✓" if diff < 1.0 else f"✗ diff={diff:.2f}°"
+                logger.warning(f"  J{i}: cmd={cmd_deg:+.2f}°, act={act_deg:+.2f}°, {status}")
+            self._verify_count += 1
+
     def set_gripper(self, position: float, torque: int = 1000):
         """Set gripper position.
 
