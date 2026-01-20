@@ -6,7 +6,7 @@ It handles CAN communication, joint state reading, and actuator control.
 
 import time
 import logging
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -76,9 +76,19 @@ class PiperSingleArm:
         Returns:
             Array of 6 joint angles in radians
         """
-        joints = self.piper.GetArmJointMsgs()  # Returns list of 6 joints in 0.001 degrees
-        # Convert from degrees to radians
-        return np.array(joints) * JOINT_UNIT * np.pi / 180
+        arm_joint = self.piper.GetArmJointMsgs()  # Returns ArmJoint object
+        # Extract joint angles from ArmMsgFeedBackJointStates object
+        joint_state = arm_joint.joint_state
+        joints = [
+            joint_state.joint_1,
+            joint_state.joint_2,
+            joint_state.joint_3,
+            joint_state.joint_4,
+            joint_state.joint_5,
+            joint_state.joint_6,
+        ]
+        # Convert from 0.001 degrees to radians
+        return np.array(joints, dtype=np.float64) * JOINT_UNIT * np.pi / 180
 
     def get_gripper_position(self) -> float:
         """Get gripper position.
@@ -86,8 +96,9 @@ class PiperSingleArm:
         Returns:
             Gripper position in meters (normalized 0-1 range typically)
         """
-        gripper = self.piper.GetArmGripperMsgs()  # Returns position in µm
-        return gripper * GRIPPER_UNIT  # Convert to meters
+        arm_gripper = self.piper.GetArmGripperMsgs()  # Returns ArmGripper object
+        gripper_state = arm_gripper.gripper_state
+        return gripper_state.grippers_angle * GRIPPER_UNIT  # Convert from µm to meters
 
     def set_joint_angles(self, angles: np.ndarray):
         """Set joint angles.
@@ -210,20 +221,49 @@ class PiperDualArmEnv:
         """Reset both arms to specified or default position.
 
         Args:
-            reset_position: Optional list of 6 joint positions (in radians).
-                If None, resets to zero position.
+            reset_position: Optional list of 14 positions [left_arm_6, left_gripper, right_arm_6, right_gripper].
+                - Joint angles: in radians
+                - Gripper positions: normalized [0, 1] (0=open, 1=closed)
+                If None, resets to zero position (joints only, grippers not changed).
         """
         if reset_position is not None:
-            if len(reset_position) != 6:
-                raise ValueError(f"reset_position must have 6 values, got {len(reset_position)}")
-            pos = reset_position
-            logger.info(f"Resetting arms to custom position: {pos}")
-        else:
-            pos = [0.0] * 6
-            logger.info("Resetting arms to zero position")
+            if len(reset_position) != 14:
+                raise ValueError(f"reset_position must have 14 values, got {len(reset_position)}")
 
-        self.left_arm.set_joint_angles(np.array(pos))
-        self.right_arm.set_joint_angles(np.array(pos))
+            # Extract positions
+            left_joints = reset_position[:6]
+            left_gripper = reset_position[6]
+            right_joints = reset_position[7:13]
+            right_gripper = reset_position[13]
+
+            # Convert gripper from normalized [0, 1] to meters [0, 0.05]
+            # 0.0 = open, 1.0 = closed
+            left_gripper_m = left_gripper * 0.05
+            right_gripper_m = right_gripper * 0.05
+
+            logger.info(f"Resetting arms to custom position:")
+            logger.info(f"  Left joints: {left_joints}")
+            logger.info(f"  Left gripper: {left_gripper} (normalized) = {left_gripper_m:.4f}m")
+            logger.info(f"  Right joints: {right_joints}")
+            logger.info(f"  Right gripper: {right_gripper} (normalized) = {right_gripper_m:.4f}m")
+        else:
+            # Reset joints to zero, leave grippers unchanged
+            left_joints = [0.0] * 6
+            right_joints = [0.0] * 6
+            left_gripper_m = None
+            right_gripper_m = None
+            logger.info("Resetting arms to zero position (grippers unchanged)")
+
+        # Reset joint angles
+        self.left_arm.set_joint_angles(np.array(left_joints))
+        self.right_arm.set_joint_angles(np.array(right_joints))
+
+        # Reset grippers if specified
+        if left_gripper_m is not None:
+            self.left_arm.set_gripper(left_gripper_m)
+        if right_gripper_m is not None:
+            self.right_arm.set_gripper(right_gripper_m)
+
         time.sleep(0.5)
 
 

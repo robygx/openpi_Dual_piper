@@ -16,6 +16,7 @@ from typing_extensions import override
 
 from examples.dual_piper import piper_env as _piper_env
 from examples.dual_piper import realsense_camera as _realsense
+from examples.dual_piper import constants as _constants
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class DualPiperRealEnvironment(_environment.Environment):
         velocity: int = 50,
         reset_position: Optional[List[float]] = None,
         camera_serials: Optional[Dict[str, str]] = None,
+        prompt: str = "stack the blocks",
     ):
         """Initialize the DualPiper environment.
 
@@ -55,13 +57,16 @@ class DualPiperRealEnvironment(_environment.Environment):
             render_height: Image height for policy input
             render_width: Image width for policy input
             velocity: Movement speed percentage (0-100)
-            reset_position: Optional reset position [left_arm_6, right_arm_6]
+            reset_position: Optional reset position (14-dim: [left_arm_6, left_gripper, right_arm_6, right_gripper])
+                If None, uses constants.RESET_POSITION (dataset start position).
             camera_serials: Optional dict mapping camera names to RealSense serial numbers
                 {"cam_high": "xxx", "cam_left_wrist": "yyy", "cam_right_wrist": "zzz"}
                 If None, will auto-discover cameras.
+            prompt: Task description prompt for the policy
         """
         self._render_height = render_height
         self._render_width = render_width
+        self._prompt = prompt
 
         # Create Piper hardware interface
         self._env = _piper_env.create_piper_dual_arm(
@@ -70,13 +75,16 @@ class DualPiperRealEnvironment(_environment.Environment):
             velocity=velocity,
         )
 
-        # Set reset position (default is zero position)
-        self._reset_position = reset_position
+        # Set reset position (default to dataset start position from constants)
+        if reset_position is None:
+            self._reset_position = _constants.CONSTANTS.RESET_POSITION.tolist()
+        else:
+            self._reset_position = reset_position
 
         # Initialize RealSense cameras
         self._init_cameras(camera_serials)
 
-        logger.info("DualPiperRealEnvironment initialized")
+        logger.info(f"DualPiperRealEnvironment initialized, reset_position={self._reset_position}")
 
     def _init_cameras(self, camera_serials: Optional[Dict[str, str]]):
         """Initialize RealSense cameras.
@@ -89,23 +97,21 @@ class DualPiperRealEnvironment(_environment.Environment):
         camera_names = ["cam_high", "cam_left_wrist", "cam_right_wrist"]
 
         if camera_serials is None:
-            # Auto-discover cameras
-            logger.info("Auto-discovering RealSense cameras...")
-            discovered = _realsense.discover_cameras()
-            if len(discovered) < len(camera_names):
-                raise RuntimeError(
-                    f"Found {len(discovered)} camera(s), need {len(camera_names)}. "
-                    "Please specify camera_serials or ensure all cameras are connected."
-                )
+            # Use default camera serial numbers
+            camera_serials = {
+                "cam_high": "152122072933",
+                "cam_left_wrist": "213722070453",
+                "cam_right_wrist": "152122076290",
+            }
+            logger.info("Using default camera serial numbers...")
 
-            # Map discovered cameras to names
-            camera_configs = {}
-            for i, name in enumerate(camera_names):
-                serial = discovered.get(f"cam_{i}")
-                if serial:
-                    camera_configs[name] = {"serial": serial}
-                else:
-                    raise RuntimeError(f"Not enough cameras discovered for {name}")
+        camera_configs = {}
+        for name in camera_names:
+            serial = camera_serials.get(name)
+            if serial:
+                camera_configs[name] = {"serial": serial}
+            else:
+                raise RuntimeError(f"Camera serial not provided for {name}")
         else:
             # Use provided serial numbers
             camera_configs = {
@@ -140,7 +146,7 @@ class DualPiperRealEnvironment(_environment.Environment):
         """Get the current observation from the robot.
 
         Returns:
-            Dictionary with "state" and "images" keys formatted for the policy.
+            Dictionary with "state", "images", and "prompt" keys formatted for the policy.
         """
         # Get joint positions from Piper arms
         state = self._env.get_joint_positions()  # (14,)
@@ -160,6 +166,7 @@ class DualPiperRealEnvironment(_environment.Environment):
         return {
             "state": state,
             "images": images,
+            "prompt": self._prompt,
         }
 
     def _get_camera_image(self, camera_name: str) -> np.ndarray:
@@ -184,6 +191,29 @@ class DualPiperRealEnvironment(_environment.Environment):
 
         Args:
             action: Dictionary with "actions" key containing (14,) array
+                Format: [left_arm_6_joints, left_gripper, right_arm_6_joints, right_gripper]
+                - Joint angles: radians
+                - Gripper positions: normalized [0.0, 1.0] from Pi0 model
         """
-        actions = action["actions"]
+        actions = action["actions"].copy()  # (14,)
+
+        # DEBUG: Print first few actions to verify format
+        if not hasattr(self, '_debug_count'):
+            self._debug_count = 0
+
+        if self._debug_count < 3:
+            # Get current position
+            current = self._env.get_joint_positions()
+            logger.info(f"\n=== Step {self._debug_count + 1} ===")
+            logger.info(f"Current position: {current}")
+            logger.info(f"Target action:   {actions}")
+            logger.info(f"Position change: {actions - current}")
+            self._debug_count += 1
+
+        # Convert gripper positions from normalized [0, 1] to meters [0, 0.05]
+        # Pi0 model outputs: 0.0 = open, 1.0 = closed
+        # Piper hardware expects: meters (0.0 = open, 0.05 = closed)
+        actions[6] = actions[6] * 0.05  # Left gripper
+        actions[13] = actions[13] * 0.05  # Right gripper
+
         self._env.set_joint_positions(actions)

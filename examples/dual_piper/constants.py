@@ -36,16 +36,18 @@ class DualPiperConstants:
     GRIPPER_MAX = 0.1  # Open (10 cm)
 
     # Reset positions (in radians)
-    # Based on ALOHA reset pose: [0, -0.96, 1.16, 0, -0.3, 0]
-    LEFT_ARM_RESET = np.array([0.0, -0.96, 1.16, 0.0, -0.3, 0.0])
-    RIGHT_ARM_RESET = np.array([0.0, -0.96, 1.16, 0.0, -0.3, 0.0])
+    # Based on stack_blocks_three dataset analysis
+    # Computed from mean of all episode start positions
+    LEFT_ARM_RESET = np.array([0.0566, 0.0001, 0.2001, 0.0307, 0.0853, 0.0495])
+    RIGHT_ARM_RESET = np.array([0.0564, 0.0009, 0.2078, 0.0118, 0.0853, -0.0056])
 
     # Combined reset position [left_arm_6, left_gripper, right_arm_6, right_gripper]
+    # Note: Training data shows grippers start in CLOSED position (~0.99)
     RESET_POSITION = np.concatenate([
         LEFT_ARM_RESET,
-        [GRIPPER_MAX],  # Left gripper open
+        [0.9965],  # Left gripper closed (matches training data)
         RIGHT_ARM_RESET,
-        [GRIPPER_MAX],  # Right gripper open
+        [0.9931],  # Right gripper closed (matches training data)
     ])
 
 
