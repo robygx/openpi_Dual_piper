@@ -68,7 +68,8 @@ class PiperSingleArm:
             velocity: Movement speed percentage (0-100)
         """
         # CAN command control mode + Joint control mode
-        self.piper.MotionCtrl_2(0x01, 0x01, velocity)
+        # Note: 4th parameter 0x00 is required (from official demo)
+        self.piper.MotionCtrl_2(0x01, 0x01, velocity, 0x00)
 
     def get_joint_angles(self) -> np.ndarray:
         """Get current joint angles.
@@ -276,7 +277,16 @@ class PiperDualArmEnv:
         if right_gripper_m is not None:
             self.right_arm.set_gripper(right_gripper_m)
 
-        time.sleep(0.5)
+        # Wait for joints to reach target positions
+        # Increased from 0.5s to 2.0s to allow joints to settle
+        time.sleep(2.0)
+
+        # Verify joints reached target positions
+        actual_left = self.left_arm.get_joint_angles()
+        actual_right = self.right_arm.get_joint_angles()
+        logger.info(f"Reset complete. Actual positions:")
+        logger.info(f"  Left arm (rad):  {actual_left}")
+        logger.info(f"  Right arm (rad): {actual_right}")
 
 
 def create_piper_dual_arm(
