@@ -32,9 +32,9 @@ class Args:
     """Port of the remote policy server."""
 
     # CAN interfaces for Piper arms
-    can_left: str = "can_left"
+    can_left: str = "can0"
     """CAN interface name for the left arm."""
-    can_right: str = "can_right"
+    can_right: str = "can1"
     """CAN interface name for the right arm."""
 
     # Policy settings
@@ -56,6 +56,10 @@ class Args:
     # Camera settings
     camera_serials: Optional[str] = None
     """JSON string mapping camera names to serial numbers, e.g., '{\"cam_high\": \"xxx\", \"cam_left_wrist\": \"yyy\", \"cam_right_wrist\": \"zzz\"}'."""
+
+    # Task prompt
+    prompt: str = "stack the blocks"
+    """Task description prompt for the policy."""
 
 
 def main(args: Args) -> None:
@@ -84,6 +88,7 @@ def main(args: Args) -> None:
         render_width=_constants.CONSTANTS.IMAGE_WIDTH,
         velocity=args.velocity,
         camera_serials=json.loads(args.camera_serials) if args.camera_serials else None,
+        prompt=args.prompt,
     )
 
     # 3. Create the policy agent with action chunking
